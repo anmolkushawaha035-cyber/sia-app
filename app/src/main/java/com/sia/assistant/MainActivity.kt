@@ -6,21 +6,27 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
 import android.view.Gravity
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import java.util.Locale
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var status: TextView
     private lateinit var input: EditText
+    private lateinit var tts: TextToSpeech
+    private var ttsReady = false
     private val speechCode = 101
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        tts = TextToSpeech(this, this)
 
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
@@ -100,8 +106,10 @@ class MainActivity : AppCompatActivity() {
             val text = input.text.toString().trim()
             if (text.isEmpty()) {
                 status.text = "Pehle kuch likhiye ya boliye."
+                speak("पहले कुछ लिखिए या बोलिए।")
             } else {
                 status.text = "Aapne likha: $text"
+                speak("आपने लिखा: $text")
             }
         }
 
@@ -117,6 +125,28 @@ class MainActivity : AppCompatActivity() {
         root.addView(bottom)
 
         setContentView(root)
+    }
+
+    override fun onInit(initStatus: Int) {
+        if (initStatus == TextToSpeech.SUCCESS) {
+            val result = tts.setLanguage(Locale("hi", "IN"))
+            if (result == TextToSpeech.LANG_MISSING_DATA ||
+                result == TextToSpeech.LANG_NOT_SUPPORTED
+            ) {
+                status.text = "Hindi awaaz phone mein nahi hai."
+            } else {
+                ttsReady = true
+                speak("अनमोल सर, मैं तैयार हूँ।")
+            }
+        } else {
+            status.text = "Sia ki awaaz shuru nahi ho paayi."
+        }
+    }
+
+    private fun speak(text: String) {
+        if (ttsReady) {
+            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "sia_speak")
+        }
     }
 
     private fun startListening() {
@@ -144,12 +174,21 @@ class MainActivity : AppCompatActivity() {
                 if (spoken != null) {
                     input.setText(spoken)
                     status.text = "Aapne kaha: $spoken"
+                    speak("आपने कहा: $spoken")
                 } else {
                     status.text = "Kuch sunai nahi diya, dobara try kijiye."
+                    speak("कुछ सुनाई नहीं दिया, दोबारा कोशिश कीजिए।")
                 }
             } else {
                 status.text = "Kuch sunai nahi diya, dobara try kijiye."
+                speak("कुछ सुनाई नहीं दिया, दोबारा कोशिश कीजिए।")
             }
         }
+    }
+
+    override fun onDestroy() {
+        tts.stop()
+        tts.shutdown()
+        super.onDestroy()
     }
 }
