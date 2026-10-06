@@ -1,10 +1,12 @@
 package com.sia.assistant
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.speech.RecognizerIntent
 import android.view.Gravity
-import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -13,101 +15,141 @@ import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var status: TextView
+    private lateinit var input: EditText
+    private val speechCode = 101
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
-        root.setBackgroundColor(Color.parseColor("#0B0F2A"))
+        root.setBackgroundColor(Color.parseColor("#0A0F2A"))
         root.setPadding(40, 120, 40, 40)
 
         val title = TextView(this)
         title.text = "SIA"
         title.textSize = 34f
-        title.setTextColor(Color.parseColor("#00D1FF"))
+        title.setTextColor(Color.WHITE)
         title.gravity = Gravity.CENTER
 
         val tagline = TextView(this)
         tagline.text = "Your Personal AI Companion"
         tagline.textSize = 14f
-        tagline.setTextColor(Color.parseColor("#B866FF"))
+        tagline.setTextColor(Color.WHITE)
         tagline.gravity = Gravity.CENTER
 
-        val avatar = TextView(this)
-        avatar.text = "S"
-        avatar.textSize = 70f
-        avatar.setTextColor(Color.WHITE)
-        avatar.gravity = Gravity.CENTER
-        val circle = GradientDrawable()
-        circle.shape = GradientDrawable.OVAL
-        circle.colors = intArrayOf(Color.parseColor("#4B6BFF"), Color.parseColor("#B866FF"))
-        avatar.background = circle
-        val avatarParams = LinearLayout.LayoutParams(420, 420)
-        avatarParams.gravity = Gravity.CENTER_HORIZONTAL
-        avatarParams.setMargins(0, 80, 0, 40)
-        avatar.layoutParams = avatarParams
+        val circle = TextView(this)
+        circle.text = "S"
+        circle.textSize = 70f
+        circle.setTextColor(Color.WHITE)
+        circle.gravity = Gravity.CENTER
+        val circleBg = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(Color.parseColor("#4B6BFF"), Color.parseColor("#B05CFF"))
+        )
+        circleBg.shape = GradientDrawable.OVAL
+        circle.background = circleBg
+        val circleParams = LinearLayout.LayoutParams(420, 420)
+        circleParams.gravity = Gravity.CENTER_HORIZONTAL
+        circleParams.topMargin = 80
+        circle.layoutParams = circleParams
 
-        val status = TextView(this)
+        status = TextView(this)
         status.text = "Anmol Sir, main taiyaar hoon."
-        status.textSize = 18f
+        status.textSize = 20f
         status.setTextColor(Color.WHITE)
         status.gravity = Gravity.CENTER
+        val statusParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        statusParams.topMargin = 60
+        status.layoutParams = statusParams
 
-        val spacer = View(this)
+        val spacer = LinearLayout(this)
         spacer.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
         )
 
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
+        val bottom = LinearLayout(this)
+        bottom.orientation = LinearLayout.HORIZONTAL
+        bottom.gravity = Gravity.CENTER_VERTICAL
 
-        val input = EditText(this)
+        input = EditText(this)
         input.hint = "Sia se kuch poochiye..."
-        input.setHintTextColor(Color.parseColor("#8890B5"))
         input.setTextColor(Color.WHITE)
+        input.setHintTextColor(Color.parseColor("#AAAAAA"))
+        input.setBackgroundColor(Color.parseColor("#1B2250"))
         input.setPadding(40, 30, 40, 30)
-        val box = GradientDrawable()
-        box.setColor(Color.parseColor("#1A2150"))
-        box.cornerRadius = 60f
-        input.background = box
-        input.layoutParams = LinearLayout.LayoutParams(
-            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
-        )
+        input.layoutParams = LinearLayout.LayoutParams(0, 140, 1f)
 
-        val mic = Button(this)
-        mic.text = "Mic"
-        mic.setTextColor(Color.WHITE)
-        mic.setBackgroundColor(Color.parseColor("#B866FF"))
+        val micButton = Button(this)
+        micButton.text = "MIC"
+        micButton.setTextColor(Color.WHITE)
+        micButton.setBackgroundColor(Color.parseColor("#B964FF"))
+        micButton.layoutParams = LinearLayout.LayoutParams(220, 140)
+        micButton.setOnClickListener { startListening() }
 
-        val send = Button(this)
-        send.text = "Bhejo"
-        send.setTextColor(Color.WHITE)
-        send.setBackgroundColor(Color.parseColor("#4B6BFF"))
-
-        mic.setOnClickListener {
-            status.text = "Mic aage ke step mein jodenge."
-        }
-
-        send.setOnClickListener {
+        val sendButton = Button(this)
+        sendButton.text = "BHEJO"
+        sendButton.setTextColor(Color.WHITE)
+        sendButton.setBackgroundColor(Color.parseColor("#4B6BFF"))
+        sendButton.layoutParams = LinearLayout.LayoutParams(220, 140)
+        sendButton.setOnClickListener {
             val text = input.text.toString().trim()
-            if (text.isNotEmpty()) {
-                status.text = "Anmol Sir, aapne likha: $text"
-                input.setText("")
+            if (text.isEmpty()) {
+                status.text = "Pehle kuch likhiye ya boliye."
+            } else {
+                status.text = "Aapne likha: $text"
             }
         }
 
-        row.addView(input)
-        row.addView(mic)
-        row.addView(send)
+        bottom.addView(input)
+        bottom.addView(micButton)
+        bottom.addView(sendButton)
 
         root.addView(title)
         root.addView(tagline)
-        root.addView(avatar)
+        root.addView(circle)
         root.addView(status)
         root.addView(spacer)
-        root.addView(row)
+        root.addView(bottom)
 
         setContentView(root)
+    }
+
+    private fun startListening() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+        intent.putExtra(
+            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+        )
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN")
+        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Boliye...")
+        try {
+            startActivityForResult(intent, speechCode)
+        } catch (e: ActivityNotFoundException) {
+            status.text = "Is phone mein bolne wali service nahi mili."
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == speechCode) {
+            if (resultCode == RESULT_OK) {
+                val results = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                val spoken = results?.firstOrNull()
+                if (spoken != null) {
+                    input.setText(spoken)
+                    status.text = "Aapne kaha: $spoken"
+                } else {
+                    status.text = "Kuch sunai nahi diya, dobara try kijiye."
+                }
+            } else {
+                status.text = "Kuch sunai nahi diya, dobara try kijiye."
+            }
+        }
     }
 }
