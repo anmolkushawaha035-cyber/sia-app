@@ -11,8 +11,14 @@ import android.view.Gravity
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
@@ -23,6 +29,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var ttsReady = false
     private val speechCode = 101
 
+    private val persona =
+        "Tum Sia ho, Anmol Sir ki personal AI saathi. " +
+        "Hamesha Hindi (Devanagari lipi) mein jawab do. " +
+        "Jawab chhota rakho, sirf 2-3 vaakya. " +
+        "Anmol Sir ko pyaar se Anmol Sir kehkar bulao."
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -31,7 +43,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
         root.setBackgroundColor(Color.parseColor("#0A0F2A"))
-        root.setPadding(40, 120, 40, 40)
+        root.setPadding(40, 100, 40, 40)
 
         val title = TextView(this)
         title.text = "SIA"
@@ -47,7 +59,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         val circle = TextView(this)
         circle.text = "S"
-        circle.textSize = 70f
+        circle.textSize = 60f
         circle.setTextColor(Color.WHITE)
         circle.gravity = Gravity.CENTER
         val circleBg = GradientDrawable(
@@ -56,9 +68,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         )
         circleBg.shape = GradientDrawable.OVAL
         circle.background = circleBg
-        val circleParams = LinearLayout.LayoutParams(420, 420)
+        val circleParams = LinearLayout.LayoutParams(340, 340)
         circleParams.gravity = Gravity.CENTER_HORIZONTAL
-        circleParams.topMargin = 80
+        circleParams.topMargin = 40
         circle.layoutParams = circleParams
 
         status = TextView(this)
@@ -66,17 +78,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         status.textSize = 20f
         status.setTextColor(Color.WHITE)
         status.gravity = Gravity.CENTER
-        val statusParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        )
-        statusParams.topMargin = 60
-        status.layoutParams = statusParams
+        status.setPadding(0, 40, 0, 40)
 
-        val spacer = LinearLayout(this)
-        spacer.layoutParams = LinearLayout.LayoutParams(
+        val scroll = ScrollView(this)
+        scroll.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
         )
+        scroll.addView(status)
+
+        val keyButton = Button(this)
+        keyButton.text = "API KEY LAGAYEIN"
+        keyButton.setTextColor(Color.WHITE)
+        keyButton.setBackgroundColor(Color.parseColor("#2A3170"))
+        keyButton.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 110
+        )
+        keyButton.setOnClickListener { showKeyDialog() }
 
         val bottom = LinearLayout(this)
         bottom.orientation = LinearLayout.HORIZONTAL
@@ -108,8 +125,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 status.text = "Pehle kuch likhiye ya boliye."
                 speak("पहले कुछ लिखिए या बोलिए।")
             } else {
-                status.text = "Aapne likha: $text"
-                speak("आपने लिखा: $text")
+                askAI(text)
             }
         }
 
@@ -120,11 +136,91 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         root.addView(title)
         root.addView(tagline)
         root.addView(circle)
-        root.addView(status)
-        root.addView(spacer)
+        root.addView(scroll)
+        root.addView(keyButton)
         root.addView(bottom)
 
         setContentView(root)
+    }
+
+    private fun prefs() = getSharedPreferences("sia_prefs", MODE_PRIVATE)
+
+    private fun showKeyDialog() {
+        val box = EditText(this)
+        box.hint = "AIza..."
+        box.setSingleLine(true)
+        AlertDialog.Builder(this)
+            .setTitle("Gemini API key")
+            .setView(box)
+            .setPositiveButton("Save") { _, _ ->
+                val k = box.text.toString().trim()
+                if (k.isNotEmpty()) {
+                    prefs().edit().putString("gemini_key", k).apply()
+                    status.text = "Key save ho gayi."
+                    speak("की सेव हो गई।")
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun askAI(question: String) {
+        val key = prefs().getString("gemini_key", "") ?: ""
+        if (key.isEmpty()) {
+            status.text = "Pehle API key lagayiye."
+            speak("पहले API key लगाइए।")
+            return
+        }
+        status.text = "Sia soch rahi hai..."
+        Thread {
+            var answer: String
+            try {
+                val part = JSONObject().put("text", question)
+                val content = JSONObject().put("parts", JSONArray().put(part))
+                val sysPart = JSONObject().put("text", persona)
+                val sys = JSONObject().put("parts", JSONArray().put(sysPart))
+                val body = JSONObject()
+                    .put("contents", JSONArray().put(content))
+                    .put("systemInstruction", sys)
+
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+                val conn = URL(url).openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.setRequestProperty("x-goog-api-key", key)
+                conn.doOutput = true
+                conn.connectTimeout = 15000
+                conn.readTimeout = 30000
+                conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
+
+                if (code in 200..299) {
+                    val json = JSONObject(text)
+                    answer = json.getJSONArray("candidates")
+                        .getJSONObject(0)
+                        .getJSONObject("content")
+                        .getJSONArray("parts")
+                        .getJSONObject(0)
+                        .getString("text")
+                        .trim()
+                } else if (code == 429) {
+                    answer = "Abhi ki seema khatam ho gayi hai, thodi der baad koshish kijiye."
+                } else if (code == 400 || code == 403) {
+                    answer = "API key sahi nahi lagti, dobara lagayiye."
+                } else {
+                    answer = "Dikkat aayi, code $code."
+                }
+            } catch (e: Exception) {
+                answer = "Jawab nahi mil paaya, internet check karke dobara koshish kijiye."
+            }
+            runOnUiThread {
+                status.text = answer
+                speak(answer)
+            }
+        }.start()
     }
 
     override fun onInit(initStatus: Int) {
@@ -168,17 +264,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == speechCode) {
-            if (resultCode == RESULT_OK) {
-                val results = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-                val spoken = results?.firstOrNull()
-                if (spoken != null) {
-                    input.setText(spoken)
-                    status.text = "Aapne kaha: $spoken"
-                    speak("आपने कहा: $spoken")
-                } else {
-                    status.text = "Kuch sunai nahi diya, dobara try kijiye."
-                    speak("कुछ सुनाई नहीं दिया, दोबारा कोशिश कीजिए।")
-                }
+            val results = if (resultCode == RESULT_OK) {
+                data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            } else null
+            val spoken = results?.firstOrNull()
+            if (spoken != null) {
+                input.setText(spoken)
+                askAI(spoken)
             } else {
                 status.text = "Kuch sunai nahi diya, dobara try kijiye."
                 speak("कुछ सुनाई नहीं दिया, दोबारा कोशिश कीजिए।")
