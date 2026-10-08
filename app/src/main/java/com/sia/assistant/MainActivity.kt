@@ -20,6 +20,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
@@ -46,11 +47,38 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         "User ko hamesha 'Anmol Sir' kehkar bulao. " +
         "Hamesha Hindi (Devanagari lipi) mein jawab do, jab tak Anmol Sir English mein baat na karein. " +
         "Jawab chhote, saaf, narm aur madadgaar rakho (2 se 4 vakya). " +
+        "Taaza khabar ya naye jaankari ke liye internet search ka istemaal karo. " +
         "Jawab mein star, hash ya koi markdown symbol mat use karo."
 
     private val history = mutableListOf<Pair<String, String>>()
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    private fun historyFile(): File = File(filesDir, "sia_history.json")
+
+    private fun saveHistory() {
+        try {
+            val arr = JSONArray()
+            for (h in history) {
+                arr.put(JSONObject().put("role", h.first).put("text", h.second))
+            }
+            historyFile().writeText(arr.toString(), Charsets.UTF_8)
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun loadHistory() {
+        try {
+            val f = historyFile()
+            if (!f.exists()) return
+            val arr = JSONArray(f.readText(Charsets.UTF_8))
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                history.add(Pair(o.getString("role"), o.getString("text")))
+            }
+        } catch (e: Exception) {
+        }
+    }
 
     private fun makeButton(label: String, bg: Int): Button {
         val b = Button(this)
@@ -140,6 +168,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         setContentView(root)
 
+        loadHistory()
+
         tts = TextToSpeech(this, this)
 
         keyBtn.setOnClickListener { showKeyDialog() }
@@ -224,17 +254,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         setStatus("Aapne kaha: $userText\n\nSia soch rahi hai...")
         history.add(Pair("user", userText))
+        val snapshot = history.toList()
 
         Thread {
             var reply: String? = null
             var lastError = ""
             for (model in models) {
                 try {
-                    reply = callModel(model, key)
+                    reply = try {
+                        callModel(model, key, snapshot, true)
+                    } catch (e: ApiException) {
+                        if (e.code == 400) callModel(model, key, snapshot, false) else throw e
+                    }
                     break
                 } catch (e: ApiException) {
                     lastError = "code ${e.code}: ${e.message}"
-                    if (e.code != 404) break
+                    if (e.code != 404 && e.code != 503 && e.code != 429) break
                 } catch (e: Exception) {
                     lastError = "internet ya network dikkat: ${e.message}"
                     break
@@ -245,6 +280,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             runOnUiThread {
                 if (finalReply != null) {
                     history.add(Pair("model", finalReply))
+                    saveHistory()
                     setStatus(finalReply)
                     speak(finalReply)
                 } else {
@@ -257,12 +293,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }.start()
     }
 
-    private fun callModel(model: String, key: String): String {
+    private fun callModel(
+        model: String,
+        key: String,
+        snapshot: List<Pair<String, String>>,
+        useSearch: Boolean
+    ): String {
         val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.connectTimeout = 20000
-        conn.readTimeout = 60000
+        conn.readTimeout = 90000
         conn.setRequestProperty("Content-Type", "application/json")
         conn.setRequestProperty("x-goog-api-key", key)
         conn.doOutput = true
@@ -272,7 +313,19 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         sys.put("parts", JSONArray().put(JSONObject().put("text", persona)))
         body.put("systemInstruction", sys)
 
-        var recent = history.takeLast(12)
+        if (useSearch) {
+            body.put("tools", JSONArray().put(JSONObject().put("google_search", JSONObject())))
+        }
+
+        // Purani baatein: peeche se lekar lagbhag 100000 akshar tak bhejte hain
+        val recentList = mutableListOf<Pair<String, String>>()
+        var total = 0
+        for (i in snapshot.indices.reversed()) {
+            total += snapshot[i].second.length
+            if (total > 100000) break
+            recentList.add(0, snapshot[i])
+        }
+        var recent: List<Pair<String, String>> = recentList
         while (recent.isNotEmpty() && recent[0].first != "user") {
             recent = recent.drop(1)
         }
